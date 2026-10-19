@@ -88,14 +88,14 @@ function errorCauseMessage(error: unknown): string {
 export class SubscriptionExecutor {
   private keypair: Keypair | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
-  private running = false;
+  public running = false;
 
   start(): void {
     const donationContractId = getDonationContractId();
     const executorSecretKey = getExecutorSecretKey();
     
     if (!donationContractId || !executorSecretKey) {
-      const msg = "SubscriptionExecutor cannot start: missing NEXT_PUBLIC_DONATION_CONTRACT_ID or EXECUTOR_SECRET_KEY.";
+      const msg = "SubscriptionExecutor cannot start: missing DONATION_CONTRACT_ID or EXECUTOR_SECRET_KEY.";
       log("error", msg);
       throw new Error(msg);
     }
@@ -397,8 +397,7 @@ export class SubscriptionExecutor {
 
   private async recordFailure(subscription: Subscription, message: string): Promise<void> {
     const isPermanent = message.includes("failed on-chain") || message.includes("reverted");
-    const currentFailureCount = (subscription as any).failureCount || 0;
-    const failureCount = currentFailureCount + 1;
+    const failureCount = subscription.failureCount + 1;
     const maxAttempts = isPermanent ? 3 : 24; // bounded attempts
     const shouldDeactivate = failureCount >= maxAttempts;
 

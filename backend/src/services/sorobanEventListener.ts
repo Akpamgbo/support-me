@@ -25,15 +25,13 @@ import { resolveTokenCurrency } from "../lib/stellarAssets";
 // is stored as a decimal in whole asset units, so divide before persisting.
 const STROOPS_PER_UNIT = 1e7;
 
-const RPC_URL = process.env.SOROBAN_RPC_URL || "https://soroban-testnet.stellar.org";
-// DONATION_CONTRACT_ID is the backend-scoped name (#302), with a fallback to
-// the old NEXT_PUBLIC_-prefixed name for backward compat with deployments
-// that still only have that one set. Remove the fallback once deployed
-// backends are confirmed migrated to the new name.
-const DONATION_CONTRACT_ID =
-  process.env.DONATION_CONTRACT_ID?.trim() || process.env.NEXT_PUBLIC_DONATION_CONTRACT_ID;
-const CREATOR_REGISTRY_CONTRACT_ID = process.env.NEXT_PUBLIC_CREATOR_REGISTRY_CONTRACT_ID;
-const POLL_INTERVAL_MS = Number(process.env.SOROBAN_EVENTS_POLL_INTERVAL_MS) || 5000;
+const RPC_URL =
+  process.env.SOROBAN_RPC_URL || "https://soroban-testnet.stellar.org";
+const DONATION_CONTRACT_ID = process.env.NEXT_PUBLIC_DONATION_CONTRACT_ID;
+const CREATOR_REGISTRY_CONTRACT_ID =
+  process.env.NEXT_PUBLIC_CREATOR_REGISTRY_CONTRACT_ID;
+const POLL_INTERVAL_MS =
+  Number(process.env.SOROBAN_EVENTS_POLL_INTERVAL_MS) || 5000;
 // How far back to look for events the first time the listener starts, so a
 // freshly-restarted backend still surfaces recent events instead of only
 // ones that happen after this exact moment.
@@ -72,13 +70,19 @@ export function decodeScVal(base64Xdr: string): unknown {
   return scValToNative(xdr.ScVal.fromXDR(base64Xdr, "base64"));
 }
 
-async function rpcCall<T>(method: string, params: Record<string, unknown>): Promise<T> {
+async function rpcCall<T>(
+  method: string,
+  params: Record<string, unknown>,
+): Promise<T> {
   const response = await fetch(RPC_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
   });
-  const body = (await response.json()) as { result?: T; error?: { message: string } };
+  const body = (await response.json()) as {
+    result?: T;
+    error?: { message: string };
+  };
   if (body.error) {
     throw new Error(`Soroban RPC ${method} failed: ${body.error.message}`);
   }
@@ -106,7 +110,7 @@ export class SorobanEventListener {
   start(): void {
     if (!DONATION_CONTRACT_ID) {
       console.warn(
-        "SorobanEventListener: DONATION_CONTRACT_ID is not set, skipping event polling."
+        "SorobanEventListener: NEXT_PUBLIC_DONATION_CONTRACT_ID is not set, skipping event polling.",
       );
       return;
     }
@@ -119,7 +123,7 @@ export class SorobanEventListener {
     console.log(
       `SorobanEventListener: polling ${RPC_URL} for contracts [${DONATION_CONTRACT_ID}${
         CREATOR_REGISTRY_CONTRACT_ID ? `, ${CREATOR_REGISTRY_CONTRACT_ID}` : ""
-      }] every ${POLL_INTERVAL_MS}ms`
+      }] every ${POLL_INTERVAL_MS}ms`,
     );
   }
 
@@ -180,26 +184,55 @@ export class SorobanEventListener {
       case "donated": {
         const value = decodeScVal(evt.value) as {
           amount: bigint;
-          memo: string;
+          memo?: string;
           timestamp: bigint;
           token?: string;
+          donation_id?: bigint | number;
+          fee_amount?: bigint;
+          subscription_id?: bigint | number | null;
         };
 
-        const donor = topics[1] as string;
-        const creator = topics[2] as string;
-        const currency = resolveTokenCurrency(value.token ? String(value.token) : undefined);
+        const donationId =
+          value.donation_id != null ? Number(value.donation_id) : undefined;
+        const feeAmount =
+          value.fee_amount != null ? value.fee_amount.toString() : undefined;
+        const subId =
+          value.subscription_id != null
+            ? Number(value.subscription_id)
+            : undefined;
+
         const payload: DonationEvent = {
           donor,
           creator,
           token: value.token ? String(value.token) : undefined,
           amount: value.amount.toString(),
-          memo: value.memo,
+          memo: value.memo || "",
           timestamp: Number(value.timestamp),
           ledger: evt.ledger,
           txHash: evt.txHash,
-          eventId: evt.id,
-          currency,
+          donationId,
+          feeAmount,
+          subscriptionId: subId,
         };
+
+        if (subId != null) {
+          try {
+            await prisma.subscription.updateMany({
+              where: { onChainId: subId },
+              data: {
+                lastChargeTxHash: evt.txHash,
+                lastChargedAt: new Date(Number(value.timestamp) * 1000),
+                lastError: null,
+                failureCount: 0,
+              },
+            });
+          } catch (err) {
+            console.error(
+              `Failed to reconcile subscription ${subId} on donation event:`,
+              err,
+            );
+          }
+        }
 
         eventBus.emit(DONATION_EVENT, payload);
 
@@ -263,7 +296,7 @@ export class SorobanEventListener {
         } catch (err) {
           console.error(
             `SorobanEventListener: error reconciling cancelled subscription #${subId}:`,
-            (err as Error).message
+            (err as Error).message,
           );
         }
         return true;
@@ -298,7 +331,7 @@ export class SorobanEventListener {
         } catch (err) {
           console.error(
             `SorobanEventListener: error reconciling creator goal for ${creatorAddress}:`,
-            (err as Error).message
+            (err as Error).message,
           );
         }
         return true;
@@ -569,10 +602,10 @@ export class SorobanEventListener {
         if (result.events.length < EVENTS_PAGE_LIMIT) break;
       }
     } catch (error) {
-      console.error("SorobanEventListener: poll failed:", (error as Error).message);
-      Sentry.captureException(error, {
-        tags: { component: "SorobanEventListener" },
-      });
+      console.error(
+        "SorobanEventListener: poll failed:",
+        (error as Error).message,
+      );
     } finally {
       this.polling = false;
     }

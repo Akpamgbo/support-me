@@ -1,4 +1,7 @@
-import { sorobanEventListener, RawEvent } from "../../services/sorobanEventListener";
+import {
+  sorobanEventListener,
+  RawEvent,
+} from "../../services/sorobanEventListener";
 import {
   eventBus,
   DONATION_EVENT,
@@ -53,12 +56,26 @@ jest.mock("../../prisma", () => {
   };
   const prismaMock = {
     ...transactionClient,
+    // #268 — the persisted event-listener cursor, stored in the same
+    // generic key/value table #278's reset detector already uses.
+    networkCheckpoint: {
+      findUnique: jest.fn().mockResolvedValue(null),
+      upsert: jest.fn().mockResolvedValue({}),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
     $transaction: jest.fn((callback: (client: typeof transactionClient) => unknown) =>
       callback(transactionClient)
     ),
   };
   return { __esModule: true, default: prismaMock };
 });
+
+jest.mock("../../services/networkReset", () => ({
+  networkReset: {
+    getState: jest.fn().mockReturnValue({ status: "ok" }),
+    check: jest.fn().mockResolvedValue(false),
+  },
+}));
 
 function toBase64Xdr(val: unknown): string {
   return nativeToScVal(val).toXDR("base64");
@@ -73,6 +90,7 @@ const mockedPrisma = prisma as unknown as {
     create: jest.Mock;
   };
   goal: { findMany: jest.Mock; update: jest.Mock };
+  networkCheckpoint: { findUnique: jest.Mock; upsert: jest.Mock; deleteMany: jest.Mock };
 };
 const mockedNotifyReceived = notifyDonationReceived as jest.Mock;
 const mockedNotifyConfirmation = notifyDonationConfirmation as jest.Mock;
@@ -116,12 +134,19 @@ describe("SorobanEventListener event processing & reconciliation", () => {
       ledger: 1050,
       id: "0000000000001050-00000",
       txHash: "tx_hash_donated_123",
-      topic: [toBase64Xdr("donated"), toBase64Xdr("GDONOR123"), toBase64Xdr("GCREATOR456")],
+      topic: [
+        toBase64Xdr("donated"),
+        toBase64Xdr("GDONOR123"),
+        toBase64Xdr("GCREATOR456"),
+      ],
       value: toBase64Xdr({
         amount: 1500000000n,
         memo: "Coffee for dev",
         timestamp: 1713182400n,
         token: "CUSDC...",
+        donation_id: 10n,
+        fee_amount: 0n,
+        subscription_id: null,
       }),
     };
 
@@ -138,10 +163,63 @@ describe("SorobanEventListener event processing & reconciliation", () => {
       timestamp: 1713182400,
       ledger: 1050,
       txHash: "tx_hash_donated_123",
+      donationId: 10,
+      feeAmount: "0",
     });
 
     eventBus.off(DONATION_EVENT, handler);
     warn.mockRestore();
+  });
+
+  it("processes recurring 'donated' event with subscription_id and reconciles subscription state", async () => {
+    const emittedEvents: DonationEvent[] = [];
+    const handler = (evt: DonationEvent) => emittedEvents.push(evt);
+    eventBus.on(DONATION_EVENT, handler);
+
+    const rawEvent: RawEvent = {
+      type: "contract",
+      ledger: 1055,
+      id: "0000000000001055-00000",
+      txHash: "tx_hash_donated_sub_123",
+      topic: [
+        toBase64Xdr("donated"),
+        toBase64Xdr("GSUPPORTER"),
+        toBase64Xdr("GCREATOR"),
+      ],
+      value: toBase64Xdr({
+        amount: 500000000n,
+        memo: "",
+        timestamp: 1713182500n,
+        token: "CUSDC...",
+        donation_id: 11n,
+        fee_amount: 0n,
+        subscription_id: 42n,
+      }),
+    };
+
+    const handled = await sorobanEventListener.processEvent(rawEvent);
+
+    expect(handled).toBe(true);
+    expect(emittedEvents.length).toBe(1);
+    expect(emittedEvents[0]).toMatchObject({
+      donor: "GSUPPORTER",
+      creator: "GCREATOR",
+      amount: "500000000",
+      donationId: 11,
+      subscriptionId: 42,
+    });
+
+    expect(prisma.subscription.updateMany).toHaveBeenCalledWith({
+      where: { onChainId: 42 },
+      data: {
+        lastChargeTxHash: "tx_hash_donated_sub_123",
+        lastChargedAt: new Date(1713182500 * 1000),
+        lastError: null,
+        failureCount: 0,
+      },
+    });
+
+    eventBus.off(DONATION_EVENT, handler);
   });
 
   it("processes 'subscribed' event with schedule details and emits SUBSCRIPTION_CREATED_EVENT", async () => {
@@ -154,7 +232,11 @@ describe("SorobanEventListener event processing & reconciliation", () => {
       ledger: 1060,
       id: "0000000000001060-00000",
       txHash: "tx_hash_sub_123",
-      topic: [toBase64Xdr("subscribed"), toBase64Xdr("GSUPPORTER"), toBase64Xdr("GCREATOR")],
+      topic: [
+        toBase64Xdr("subscribed"),
+        toBase64Xdr("GSUPPORTER"),
+        toBase64Xdr("GCREATOR"),
+      ],
       value: toBase64Xdr({
         subscription_id: 42n,
         token: "USDC",
@@ -191,7 +273,11 @@ describe("SorobanEventListener event processing & reconciliation", () => {
       ledger: 1070,
       id: "0000000000001070-00000",
       txHash: "tx_hash_cancel_123",
-      topic: [toBase64Xdr("sub_cancelled"), toBase64Xdr("GSUPPORTER"), toBase64Xdr("GCREATOR")],
+      topic: [
+        toBase64Xdr("sub_cancelled"),
+        toBase64Xdr("GSUPPORTER"),
+        toBase64Xdr("GCREATOR"),
+      ],
       value: toBase64Xdr({
         subscription_id: 42n,
       }),

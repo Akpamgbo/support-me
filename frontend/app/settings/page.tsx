@@ -12,7 +12,7 @@ import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { AppNav } from '@/components/AppNav';
 import { QrCodeCard } from '@/components/QrCodeCard';
 import { Skeleton } from '@/components/Skeleton';
-import { SOCIAL_PLATFORMS, normalizeSocialValue } from '@/lib/socials';
+import { SOCIAL_PLATFORMS, isHttpUrl, normalizeSocialValue } from '@/lib/socials';
 import { uploadAvatar } from '@/lib/upload';
 import { parsePresetAmounts } from '@/lib/donation';
 import { API_URL } from '@/lib/api';
@@ -65,6 +65,7 @@ export default function SettingsPage() {
   const [donationGoal, setDonationGoal] = useState('');
   const [presetAmountsInput, setPresetAmountsInput] = useState('');
   const [socials, setSocials] = useState<Record<string, string>>({});
+  const [socialError, setSocialError] = useState('');
 
   const [goals, setGoals] = useState<Goal[]>([]);
   const [goalsLoading, setGoalsLoading] = useState(true);
@@ -311,8 +312,13 @@ export default function SettingsPage() {
     const socialLinks: Record<string, string> = {};
     for (const platform of SOCIAL_PLATFORMS) {
       const normalized = normalizeSocialValue(platform, socials[platform.key] || '');
+      if (normalized && !isHttpUrl(normalized)) {
+        setSocialError(`${platform.label} must be a valid http or https URL.`);
+        return;
+      }
       if (normalized) socialLinks[platform.key] = normalized;
     }
+    setSocialError('');
 
     setSaving(true);
     try {
@@ -821,6 +827,7 @@ export default function SettingsPage() {
                       value={socials[platform.key] || ''}
                       onChange={(e) => {
                         setSocials((prev) => ({ ...prev, [platform.key]: e.target.value }));
+                        setSocialError('');
                         setDirty(true);
                       }}
                       placeholder={platform.label}
@@ -829,6 +836,7 @@ export default function SettingsPage() {
                   </div>
                 ))}
               </div>
+              {socialError && <p role="alert" className="text-sm text-red-600">{socialError}</p>}
             </section>
 
             <div className="pt-6 border-t-2 border-ink">

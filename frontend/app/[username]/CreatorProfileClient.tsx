@@ -24,7 +24,7 @@ import {
 import { availableAssetCodes, getAsset, type AssetCode } from '@/lib/assets';
 import { MIN_DONATION_AMOUNT } from '@/lib/donation';
 import { memoByteLength } from '@/lib/memo';
-import { getPlatform } from '@/lib/socials';
+import { getPlatform, isHttpUrl } from '@/lib/socials';
 import { API_URL } from '@/lib/api';
 import { fetchWithRetry } from '@/lib/network';
 import { describeDonationFailure, type FlowFailure } from '@/lib/failures';
@@ -681,7 +681,7 @@ function CreatorProfileView({ username, locale, onLocaleChange }: CreatorProfile
   }
 
   const socialLinks = creator.socialLinks || {};
-  const socialEntries = Object.entries(socialLinks).filter(([, url]) => url);
+  const socialEntries = Object.entries(socialLinks).filter(([, url]) => isHttpUrl(url));
 
   const displayName = creator.displayName || creator.username;
   const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://support-mee.vercel.app';

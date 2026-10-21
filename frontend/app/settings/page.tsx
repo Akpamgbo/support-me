@@ -20,6 +20,7 @@ import { fetchWithRetry, isNetworkError } from '@/lib/network';
 import { AccountDataSection } from '@/components/AccountDataSection';
 import { ThemeEditor } from '@/components/ThemeEditor';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { explorerAccountUrl } from '@/lib/stellarNetwork';
 
 interface Goal {
   id: number;
@@ -495,7 +496,9 @@ export default function SettingsPage() {
                   <span className="block text-sm font-bold text-ink mb-2">Connected Stellar wallet</span>
                   <div className="flex items-center gap-2">
                     <p className="min-w-0 flex-1 break-all rounded border-2 border-ink/20 bg-background px-3 py-2 font-mono text-sm text-ink">
-                      {user.walletAddress}
+                      <a href={explorerAccountUrl(user.walletAddress)} target="_blank" rel="noopener noreferrer" className="underline break-all">
+                        {user.walletAddress}
+                      </a>
                     </p>
                     <button
                       type="button"

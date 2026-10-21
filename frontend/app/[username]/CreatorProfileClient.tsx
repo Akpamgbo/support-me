@@ -25,6 +25,7 @@ import { availableAssetCodes, getAsset, type AssetCode } from '@/lib/assets';
 import { MIN_DONATION_AMOUNT } from '@/lib/donation';
 import { memoByteLength } from '@/lib/memo';
 import { getPlatform, isHttpUrl } from '@/lib/socials';
+import { explorerTxUrl, horizonServer } from '@/lib/stellarNetwork';
 import { API_URL } from '@/lib/api';
 import { fetchWithRetry } from '@/lib/network';
 import { describeDonationFailure, type FlowFailure } from '@/lib/failures';
@@ -36,8 +37,6 @@ import { getMessages, useDocumentLang, useLocalePreference, type Locale } from '
 import { THEME_LAYOUTS, themeStyle, type ProfileTheme } from '@/lib/theme';
 
 
-const HORIZON_URL = 'https://horizon-testnet.stellar.org';
-const server = new StellarSdk.Horizon.Server(HORIZON_URL);
 
 interface Creator {
   id: number;
@@ -324,7 +323,7 @@ function CreatorProfileView({ username, locale, onLocaleChange }: CreatorProfile
   // back to null when the wallet holds no trustline/balance for it.
   const loadAssetBalance = useCallback(async (address: string, code: string) => {
     try {
-      const account = await server.loadAccount(address);
+      const account = await horizonServer.loadAccount(address);
       setIsUnfunded(false);
       const asset = getAsset(code);
       let match;
@@ -337,7 +336,7 @@ function CreatorProfileView({ username, locale, onLocaleChange }: CreatorProfile
         match = account.balances.find((b: { asset_type?: string; asset_code?: string }) => {
           if (b.asset_type === 'native') return false;
           if (asset && asset.code === code && typeof asset.balanceMatcher === 'function') {
-            return asset.balanceMatcher(b);
+            return asset.balanceMatcher(b as StellarSdk.Horizon.HorizonApi.BalanceLine);
           }
           return b.asset_code === code;
         });
@@ -482,7 +481,7 @@ function CreatorProfileView({ username, locale, onLocaleChange }: CreatorProfile
 
       const txLink = (
         <a
-          href={`https://stellar.expert/explorer/testnet/tx/${hash}`}
+          href={explorerTxUrl(hash)}
           target="_blank"
           rel="noopener noreferrer"
           className="underline"
@@ -896,7 +895,7 @@ function CreatorProfileView({ username, locale, onLocaleChange }: CreatorProfile
                         rel="noopener noreferrer"
                         className="underline"
                       >
-                        Circle's faucet
+                        Circle&apos;s faucet
                       </a>
                       . Test tokens have no real value.
                     </p>

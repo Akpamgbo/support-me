@@ -153,15 +153,22 @@ export class DonationError extends Error {
  *
  * @param multiplier extra factor, e.g. periodsToApprove
  */
-function toStroops(amount: string | number, multiplier = 1): bigint {
-  const value = parseFloat(String(amount));
-  if (!Number.isFinite(value) || value <= 0) {
+export function toStroops(amount: string | number, multiplier = 1): bigint {
+  const value = String(amount).trim();
+  const match = /^(\d+)(?:\.(\d*))?$/.exec(value);
+  if (!match || (match[2]?.length ?? 0) > 7 || !Number.isSafeInteger(multiplier) || multiplier <= 0) {
     throw new DonationError(
       "simulation",
-      "Enter a valid amount greater than 0.",
+      "Enter a valid amount with no more than 7 decimal places.",
     );
   }
-  return BigInt(Math.round(value * multiplier * 1e7));
+  const whole = BigInt(match[1]);
+  const fraction = BigInt((match[2] ?? '').padEnd(7, '0') || '0');
+  const stroops = whole * 10_000_000n + fraction;
+  if (stroops <= 0n) {
+    throw new DonationError("simulation", "Enter a valid amount greater than 0.");
+  }
+  return stroops * BigInt(multiplier);
 }
 
 interface CallContractParams {

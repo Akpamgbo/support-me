@@ -23,6 +23,7 @@ import {
 } from '@/lib/contract';
 import { availableAssetCodes, getAsset, type AssetCode } from '@/lib/assets';
 import { MIN_DONATION_AMOUNT } from '@/lib/donation';
+import { memoByteLength } from '@/lib/memo';
 import { getPlatform } from '@/lib/socials';
 import { API_URL } from '@/lib/api';
 import { fetchWithRetry } from '@/lib/network';
@@ -935,7 +936,9 @@ function CreatorProfileView({ username, locale, onLocaleChange }: CreatorProfile
                 const parsedAmt = parseFloat(donationAmount);
                 const isAmountValid = Number.isFinite(parsedAmt) && parsedAmt >= MIN_DONATION_AMOUNT;
                 const isLargeDonation = Number.isFinite(parsedAmt) && parsedAmt >= LARGE_DONATION_THRESHOLD;
-                const canSubmit = isAmountValid && (!isLargeDonation || largeDonationConfirmed);
+                const memoBytes = memoByteLength(donationMessage);
+                const memoTooLong = memoBytes > MAX_MEMO_LENGTH;
+                const canSubmit = isAmountValid && (!isLargeDonation || largeDonationConfirmed) && !memoTooLong;
 
                 return (
                   <>
@@ -1016,14 +1019,18 @@ function CreatorProfileView({ username, locale, onLocaleChange }: CreatorProfile
                         id="donation-message"
                         value={donationMessage}
                         onChange={(e) => setDonationMessage(e.target.value)}
-                        maxLength={MAX_MEMO_LENGTH}
                         placeholder={t('messagePlaceholder')}
                         className="input-brutal text-sm"
                         rows={3}
                       />
                       <p className="text-xs text-muted mt-1 font-medium">
-                        {t('characterCount', { count: donationMessage.length, max: MAX_MEMO_LENGTH })}
+                        {memoBytes}/{MAX_MEMO_LENGTH} bytes
                       </p>
+                      {memoTooLong && (
+                        <p role="alert" className="text-xs text-red-600 mt-1">
+                          Message must be {MAX_MEMO_LENGTH} bytes or fewer.
+                        </p>
+                      )}
                     </div>
 
                     <div className="flex items-center justify-between gap-3">
